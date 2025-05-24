@@ -17,10 +17,11 @@ class GraphRepository:
         self.session = session
 
     async def _node_map(self, graph_id: int) -> Dict[str, int]:
-        rows = await self.session.execute(
+        node_rows = await self.session.scalars(
             select(Node.id, Node.name).where(Node.graph_id == graph_id)
         )
-        return {row[0]: row[1] for row in rows.all()}
+        nodes = node_rows.all()
+        return {n_id: name for n_id, name in nodes}
 
     async def create_graph(self, nodes: List[NodeDTO], edges: List[EdgeDTO]) -> int:
         graph = Graph()
@@ -64,18 +65,30 @@ class GraphRepository:
         return node_dtos, edge_dtos
 
     async def adjacency(self, graph_id: int, reverse: bool = False) -> Dict[str, List[str]]:
+        node_rows = await self.session.scalars(
+            select(Node).where(Node.graph_id == graph_id)
+        )
+        nodes = node_rows.all()
+        if not nodes:
+            raise KeyError("Graph not found")
+        id_to_name = {n.id: n.name for n in nodes}
+        if not reverse:
+            col_a, col_b = Edge.source_id, Edge.target_id
+        else:
+            col_a, col_b = Edge.target_id, Edge.source_id
+        stmt = select(col_a, col_b).where(
+            Edge.graph_id == graph_id,
+            col_a.in_(id_to_name.keys()),
+            col_b.in_(id_to_name.keys()),
+        )
+        result = await self.session.execute(stmt)
         adj: Dict[str, List[str]] = defaultdict(list)
-        stmt = (select(Edge.source_id, Edge.target_id) if not reverse
-                else select(Edge.target_id, Edge.source_id)
-        ).where(Edge.graph_id == graph_id)
-        pairs = await self.session.execute(stmt)
-        id_to_name = await self._node_map(graph_id)
-        for a_id, b_id in pairs:
+        for a_id, b_id in result:
             adj[id_to_name[a_id]].append(id_to_name[b_id])
         for name in id_to_name.values():
             adj.setdefault(name, [])
-        for v in adj.values():
-            v.sort()
+        for children in adj.values():
+            children.sort()
         return dict(adj)
 
     async def delete_node(self, graph_id: int, node_name: str) -> None:
