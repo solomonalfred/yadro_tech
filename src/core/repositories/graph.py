@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import defaultdict
 from itertools import chain
 from typing import Dict, List
-from sqlalchemy import select
+from sqlalchemy import select, or_ ,delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Edge, Graph, Node
@@ -17,10 +17,11 @@ class GraphRepository:
         self.session = session
 
     async def _node_map(self, graph_id: int) -> Dict[str, int]:
-        result = await self.session.execute(
+        node_rows = await self.session.scalars(
             select(Node.id, Node.name).where(Node.graph_id == graph_id)
         )
-        return {name: _id for _id, name in result.all()}
+        nodes = node_rows.all()
+        return {n_id: name for n_id, name in nodes}
 
     async def create_graph(self, nodes: List[NodeDTO], edges: List[EdgeDTO]) -> int:
         graph = Graph()
@@ -49,29 +50,47 @@ class GraphRepository:
             select(Node).where(Node.graph_id == graph_id)
         )
         nodes = nodes.all()
+        id_to_name = {n.id: n.name for n in nodes}
         if not nodes:
             return [], []
         edges = await self.session.scalars(
             select(Edge).where(Edge.graph_id == graph_id)
         )
-        edges = edges.all()
+        edges = [
+            e for e in edges
+            if e.source_id in id_to_name and e.target_id in id_to_name
+        ]
         node_dtos = [NodeDTO(name=n.name) for n in nodes]
         id_to_name = {n.id: n.name for n in nodes}
         edge_dtos = [
-            EdgeDTO(source=id_to_name[e.source_id], target=id_to_name[e.target_id])
+            EdgeDTO(
+                source = id_to_name[e.source_id],
+                target = id_to_name[e.target_id],
+            )
             for e in edges
         ]
         return node_dtos, edge_dtos
 
     async def adjacency(self, graph_id: int, reverse: bool = False) -> Dict[str, List[str]]:
+        node_rows = await self.session.scalars(
+            select(Node).where(Node.graph_id == graph_id)
+        )
+        nodes = node_rows.all()
+        if not nodes:
+            raise KeyError("Graph not found")
+        id_to_name = {n.id: n.name for n in nodes}
+        if not reverse:
+            col_a, col_b = Edge.source_id, Edge.target_id
+        else:
+            col_a, col_b = Edge.target_id, Edge.source_id
+        stmt = select(col_a, col_b).where(
+            Edge.graph_id == graph_id,
+            col_a.in_(id_to_name.keys()),
+            col_b.in_(id_to_name.keys()),
+        )
+        result = await self.session.execute(stmt)
         adj: Dict[str, List[str]] = defaultdict(list)
-        stmt = (select(Edge.source_id, Edge.target_id) if not reverse
-                else select(Edge.target_id, Edge.source_id)
-        ).where(Edge.graph_id == graph_id)
-        pairs = await self.session.execute(stmt)
-        node_map = await self._node_map(graph_id)
-        id_to_name = {v: k for k, v in node_map.items()}
-        for a_id, b_id in pairs:
+        for a_id, b_id in result:
             adj[id_to_name[a_id]].append(id_to_name[b_id])
         for name in id_to_name.values():
             adj.setdefault(name, [])
@@ -87,6 +106,15 @@ class GraphRepository:
         )
         node = result.scalar_one_or_none()
         if node is None:
-            raise KeyError("Node not found")
+            raise KeyError("node not found")
+        await self.session.execute(
+            delete(Edge).where(
+                Edge.graph_id == graph_id,
+                or_(
+                    Edge.source_id == node.id,
+                    Edge.target_id == node.id,
+                )
+            )
+        )
         await self.session.delete(node)
         await self.session.commit()

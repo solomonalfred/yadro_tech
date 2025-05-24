@@ -1,0 +1,9 @@
+[project]
+name = "yadro-tech"
+version = "0.1.0"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["src"]
+
