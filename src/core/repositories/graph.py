@@ -17,10 +17,10 @@ class GraphRepository:
         self.session = session
 
     async def _node_map(self, graph_id: int) -> Dict[str, int]:
-        result = await self.session.execute(
+        rows = await self.session.execute(
             select(Node.id, Node.name).where(Node.graph_id == graph_id)
         )
-        return {name: _id for _id, name in result.all()}
+        return {row[0]: row[1] for row in rows.all()}
 
     async def create_graph(self, nodes: List[NodeDTO], edges: List[EdgeDTO]) -> int:
         graph = Graph()
@@ -69,14 +69,13 @@ class GraphRepository:
                 else select(Edge.target_id, Edge.source_id)
         ).where(Edge.graph_id == graph_id)
         pairs = await self.session.execute(stmt)
-        node_map = await self._node_map(graph_id)
-        id_to_name = {v: k for k, v in node_map.items()}
+        id_to_name = await self._node_map(graph_id)
         for a_id, b_id in pairs:
             adj[id_to_name[a_id]].append(id_to_name[b_id])
         for name in id_to_name.values():
             adj.setdefault(name, [])
-        for children in adj.values():
-            children.sort()
+        for v in adj.values():
+            v.sort()
         return dict(adj)
 
     async def delete_node(self, graph_id: int, node_name: str) -> None:
