@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import defaultdict
 from itertools import chain
 from typing import Dict, List
-from sqlalchemy import select
+from sqlalchemy import select, or_ ,delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Edge, Graph, Node
@@ -50,16 +50,23 @@ class GraphRepository:
             select(Node).where(Node.graph_id == graph_id)
         )
         nodes = nodes.all()
+        id_to_name = {n.id: n.name for n in nodes}
         if not nodes:
             return [], []
         edges = await self.session.scalars(
             select(Edge).where(Edge.graph_id == graph_id)
         )
-        edges = edges.all()
+        edges = [
+            e for e in edges
+            if e.source_id in id_to_name and e.target_id in id_to_name
+        ]
         node_dtos = [NodeDTO(name=n.name) for n in nodes]
         id_to_name = {n.id: n.name for n in nodes}
         edge_dtos = [
-            EdgeDTO(source=id_to_name[e.source_id], target=id_to_name[e.target_id])
+            EdgeDTO(
+                source = id_to_name[e.source_id],
+                target = id_to_name[e.target_id],
+            )
             for e in edges
         ]
         return node_dtos, edge_dtos
@@ -99,6 +106,15 @@ class GraphRepository:
         )
         node = result.scalar_one_or_none()
         if node is None:
-            raise KeyError("Node not found")
+            raise KeyError("node not found")
+        await self.session.execute(
+            delete(Edge).where(
+                Edge.graph_id == graph_id,
+                or_(
+                    Edge.source_id == node.id,
+                    Edge.target_id == node.id,
+                )
+            )
+        )
         await self.session.delete(node)
         await self.session.commit()
