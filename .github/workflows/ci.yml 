@@ -1,0 +1,63 @@
+# .github/workflows/ci.yml
+name: CI
+
+# Триггеры: пуш в любые ветки и пулл-реквесты
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: graph
+        options: >-
+          --health-cmd="pg_isready -U postgres -d graph"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # если вы используете poetry:
+          # pip install poetry
+          # poetry install --no-root --with dev
+          # иначе:
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres -d graph; do
+            echo "Waiting for Postgres..."
+            sleep 1
+          done
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Run pytest
+        run: pytest -q
