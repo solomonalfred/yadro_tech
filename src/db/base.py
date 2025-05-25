@@ -20,5 +20,4 @@ class Base:
         for column in self.__table__.columns.keys():
             columns.append(f"{column}={getattr(self, column)}")
         return f"[{self.__class__.__name__}]{ends}{tab}{f',{ends + tab}'.join(columns)}"
-
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
