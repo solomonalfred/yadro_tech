@@ -1,18 +1,14 @@
-# .github/workflows/ci.yml
 name: CI
 
-# Триггеры: пуш в любые ветки и пулл-реквесты
 on:
   push:
     branches:
-      - '**'
+      - dev
+      - main
   pull_request:
-    branches:
-      - '**'
 
 jobs:
   test:
-    name: Run tests
     runs-on: ubuntu-latest
 
     services:
@@ -21,37 +17,43 @@ jobs:
         ports:
           - 5432:5432
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: yadro
+          POSTGRES_PASSWORD: 123456
           POSTGRES_DB: graph
+        # healthcheck для надёжности
         options: >-
-          --health-cmd="pg_isready -U postgres -d graph"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+          --health-cmd "pg_isready -U yadro -d graph"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # переменные окружения для тестов
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: yadro
+      DB_PASS: 123456
+      DB_NAME: graph
+      # если у вас в tests/conftest.py читаются POSTGRES_DSN
+      POSTGRES_DSN: postgresql+asyncpg://yadro:123456@localhost:5432/graph
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set up Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: 3.11
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # если вы используете poetry:
-          # pip install poetry
-          # poetry install --no-root --with dev
-          # иначе:
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install --no-cache-dir -r requirements.txt
 
       - name: Wait for Postgres
         run: |
-          until pg_isready -h localhost -p 5432 -U postgres -d graph; do
+          until pg_isready -h localhost -p 5432 -U yadro -d graph; do
             echo "Waiting for Postgres..."
             sleep 1
           done
@@ -60,4 +62,4 @@ jobs:
         run: alembic upgrade head
 
       - name: Run pytest
-        run: pytest -q
+        run: pytest -q --cov=src --cov-fail-under=80
