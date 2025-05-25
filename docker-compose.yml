@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:13
+    restart: always
+    ports:
+      - "${DB_PORT_INTERNAL}:${DB_PORT}"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -h localhost -p ${DB_PORT_INTERNAL} -U ${DB_USER} -d ${DB_NAME}"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: src/docker/Dockerfile
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+#      db:
+#        condition: service_healthy
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+volumes:
+  postgres_data:
